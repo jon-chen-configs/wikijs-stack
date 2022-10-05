@@ -1,0 +1,5 @@
+kind: template
+load: swarm-stack-deploy.yaml
+data:
+  compose_file: wikijs-swarm.yml
+  stack_name: wikijs-swarm

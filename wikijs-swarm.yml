@@ -1,0 +1,151 @@
+version: "3.7"
+services:
+  wikijs:
+    image: requarks/wiki:2
+    env_file: 
+      - "${ENV_DIR:-swarm-envs}/swarm/wikijs-stack/wikijs.env"
+      - "${ENV_DIR:-swarm-envs}/swarm/wikijs-stack/postgres.env"
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      placement:
+        # Docker (20.10.3) on Synology bug where env vars from env_file 
+        # not set on container.
+        # constraints: [node.platform.arch != aarch64]
+        constraints:
+          - node.platform.arch != aarch64
+          - node.hostname != ${NAS_HOSTNAME}
+      labels:
+        - traefik.enable=true
+        - traefik.docker.network=traefik-net
+        - traefik.http.routers.wikijs.rule=Host(`wiki.cynicsoft.net`)
+        - traefik.http.routers.wikijs.entrypoints=https
+        - traefik.http.routers.wikijs.middlewares=internal-whitelist
+        - traefik.http.services.wikijs.loadbalancer.server.port=3000
+        - homepage.name=Wiki
+        - homepage.group=Apps
+        - homepage.icon=https://raw.githubusercontent.com/modem7/MiscAssets/master/Icons/Dashboard-Icons/wikijs.png
+        - homepage.href=https://wiki.cynicsoft.net/
+        - homepage.description=Wiki content platform
+    networks:
+      - traefik-net
+      - default
+    volumes:
+      - /etc/ssl/certs/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  postgres:
+    image: postgres:10
+    env_file: ["${ENV_DIR:-swarm-envs}/swarm/wikijs-stack/postgres.env"]
+    deploy:
+      replicas: 1
+      placement:
+        # Docker (20.10.3) on Synology bug where env vars from env_file 
+        # not set on container.
+        # constraints: [node.platform.arch != aarch64]
+        constraints:
+          - node.platform.arch != aarch64
+          - node.hostname != ${NAS_HOSTNAME}
+    networks:
+      - default
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - postgres_data:/var/lib/postgresql/data
+
+  # Run on demand for debugging.
+  adminer:
+    image: adminer:latest
+    deploy:
+      mode: replicated
+      replicas: 0
+      placement:
+        constraints: [node.platform.arch != aarch64]
+      restart_policy:
+        condition: none
+      labels:
+        - traefik.enable=true
+        - traefik.docker.network=traefik-net
+        - traefik.http.routers.wikijs-adminer.priority=100
+        - traefik.http.routers.wikijs-adminer.rule=Host(`wikijs.cynicsoft.net`) && Path(`/adminer`)
+        - traefik.http.routers.wikijs-adminer.entrypoints=https
+        - traefik.http.routers.wikijs-adminer.middlewares=internal-whitelist
+        - traefik.http.services.wikijs-adminer.loadbalancer.server.port=8080
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - default
+      - traefik-net
+    environment:
+      - ADMINER_DEFAULT_SERVER=postgres:5432
+
+
+  # WikJS postgres backup job
+  wikijs-backup-db-job:
+    image: docker-hub.cynicsoft.net/postgres-client:latest
+    env_file: ["${ENV_DIR:-swarm-envs}/swarm/wikijs-stack/postgres.env"]
+    deploy:
+      mode: replicated
+      replicas: 0
+      placement:
+        # Docker (20.10.3) on Synology bug where env vars from env_file 
+        # not set on container.
+        # constraints: [node.platform.arch != aarch64]
+        constraints:
+          - node.platform.arch != aarch64
+          - node.hostname != ${NAS_HOSTNAME}
+      restart_policy:
+        condition: none
+      labels:
+        - swarm.cronjob.enable=true
+        - swarm.cronjob.schedule=@daily
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+    networks:
+      - healthchecks-swarm_default
+      - default
+    command: >-
+      sh -c 'LOG=/logs/wikijs-backup-db-job.log;
+      date > $$LOG &&
+      echo "$$POSTGRES_HOST:$$POSTGRES_PORT:$$POSTGRES_DB:$$POSTGRES_USER:$$POSTGRES_PASSWORD" > /root/.pgpass &&
+      wget -SO - http://tasks.healthchecks:8000/ping/6e82bf81-7405-4877-bed8-bb9a47be6106/start >> $$LOG 2>&1 &&
+      echo backing up db to backup dir... >> $$LOG &&
+      pg_dump -c -U $$POSTGRES_USER $$POSTGRES_DB | xz > /backups/data/postgres/wikijs_postgres_backup_$$(date +"%Y-%m-%d_%H_%M_%S").xz &&
+      echo delete all but last 2 db backups... >> $$LOG &&
+      ls -dt /backups/data/postgres/* | grep wikijs_postgres_backup_ | tail -n +3 | xargs rm -- >> $$LOG &&
+      echo done. >> $$LOG &&
+      wget -SO - http://tasks.healthchecks:8000/ping/6e82bf81-7405-4877-bed8-bb9a47be6106 >> $$LOG 2>&1'
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - postgres_data:/var/lib/postgresql/data
+      - wikijs-stack_logs:/logs
+      - backups:/backups
+
+
+volumes:
+  postgres_data:
+    driver_opts:
+      type: nfs
+      o: addr=${NAS_HOST},nolock,noresvport,vers=2
+      device: :${DATADIR}/wikijs-stack/postgres
+  wikijs-stack_logs:
+    driver_opts:
+      type: nfs
+      o: addr=${NAS_HOST},nolock,noresvport,vers=2
+      device: :${DATADIR}/wikijs-stack/logs
+  backups:
+    driver_opts:
+      type: nfs
+      o: addr=${NAS_HOST},nolock,noresvport,vers=2
+      device: :/volume1/docker/backups
+
+networks:
+  traefik-net:
+    external: true
+  healthchecks-swarm_default:
+    external: true
+  default:
+    name: wikijs-swarm_default
+    driver: overlay
+    attachable: true
