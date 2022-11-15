@@ -138,7 +138,7 @@ volumes:
     driver_opts:
       type: nfs
       o: addr=${NAS_HOST},nolock,noresvport,vers=2
-      device: :/volume1/docker/backups
+      device: :/volume4/docker/backups
 
 networks:
   traefik-net:
