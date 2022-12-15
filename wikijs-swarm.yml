@@ -107,15 +107,15 @@ services:
       - default
     command: >-
       sh -c 'LOG=/logs/wikijs-backup-db-job.log;
-      date > $$LOG &&
-      echo "$$POSTGRES_HOST:$$POSTGRES_PORT:$$POSTGRES_DB:$$POSTGRES_USER:$$POSTGRES_PASSWORD" > /root/.pgpass &&
-      wget -SO - http://tasks.healthchecks:8000/ping/6e82bf81-7405-4877-bed8-bb9a47be6106/start >> $$LOG 2>&1 &&
-      echo backing up db to backup dir... >> $$LOG &&
-      pg_dump -c -U $$POSTGRES_USER $$POSTGRES_DB | xz > /backups/data/postgres/wikijs_postgres_backup_$$(date +"%Y-%m-%d_%H_%M_%S").xz &&
-      echo delete all but last 2 db backups... >> $$LOG &&
-      ls -dt /backups/data/postgres/* | grep wikijs_postgres_backup_ | tail -n +3 | xargs rm -- >> $$LOG &&
-      echo done. >> $$LOG &&
-      wget -SO - http://tasks.healthchecks:8000/ping/6e82bf81-7405-4877-bed8-bb9a47be6106 >> $$LOG 2>&1'
+      date 2>&1 | tee $$LOG;
+      echo "$$POSTGRES_HOST:$$POSTGRES_PORT:$$POSTGRES_DB:$$POSTGRES_USER:$$POSTGRES_PASSWORD" > /root/.pgpass 2>&1 | tee -a $$LOG;
+      wget -SO - http://tasks.healthchecks:8000/ping/6e82bf81-7405-4877-bed8-bb9a47be6106/start 2>&1 | tee -a $$LOG;
+      echo "backing up db to backup dir..." 2>&1 | tee -a $$LOG &&
+      pg_dump -c -U $$POSTGRES_USER $$POSTGRES_DB | xz > /backups/data/postgres/wikijs_postgres_backup_$$(date +"%Y-%m-%d_%H_%M_%S").xz 2>&1 | tee -a $$LOG &&
+      echo "delete all but last 2 db backups..." 2>&1 | tee -a $$LOG &&
+      ls -dt /backups/data/postgres/* | grep wikijs_postgres_backup_ | tail -n +3 | xargs rm -- 2>&1 | tee -a $$LOG &&
+      echo "done." 2>&1 | tee -a $$LOG;
+      wget -SO - http://tasks.healthchecks:8000/ping/6e82bf81-7405-4877-bed8-bb9a47be6106/$$? 2>&1 | tee -a $$LOG'
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - postgres_data:/var/lib/postgresql/data
