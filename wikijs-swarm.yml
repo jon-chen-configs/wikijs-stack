@@ -108,6 +108,7 @@ services:
     command: >-
       sh -c 'LOG=/logs/wikijs-backup-db-job.log;
       date 2>&1 | tee $$LOG;
+      set -o pipefail;
       echo "$$POSTGRES_HOST:$$POSTGRES_PORT:$$POSTGRES_DB:$$POSTGRES_USER:$$POSTGRES_PASSWORD" > /root/.pgpass 2>&1 | tee -a $$LOG;
       wget -SO - http://tasks.healthchecks:8000/ping/6e82bf81-7405-4877-bed8-bb9a47be6106/start 2>&1 | tee -a $$LOG;
       echo "backing up db to backup dir..." 2>&1 | tee -a $$LOG &&
